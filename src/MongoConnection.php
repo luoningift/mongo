@@ -29,11 +29,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
 {
 
     /**
-     * @var MongoDB
-     */
-    protected $connection;
-
-    /**
      * @var array
      */
     protected $config = [
@@ -60,12 +55,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
     protected $sock = null;
     protected $protocol = null;
     protected $mongoDb = null;
-
-    /**
-     * Current redis database.
-     * @var null|int
-     */
-    protected $database;
 
     public function __construct(ContainerInterface $container, Pool $pool, array $config)
     {
@@ -100,9 +89,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
             $this->closeReplica();
         } else {
             $conRes = $this->connectToFirstAvailableHost();
-        }
-        if ($conRes) {
-            $this->connection = $this->mongoDb;
         }
         return $conRes;
     }
