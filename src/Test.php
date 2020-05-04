@@ -1,6 +1,6 @@
 <?php
 namespace Kaikeba;
-class luoning {
+class Test {
     
     public function print() {
 	    echo '1111';

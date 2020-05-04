@@ -1,6 +1,6 @@
 <?php 
 namespace Kaikeba/LL;
-class LL {
+class L {
 	public function print() {
 		echo "asdlkfaj";
 	}
