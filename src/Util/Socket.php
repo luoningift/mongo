@@ -3,7 +3,8 @@
 namespace Kaikeba\Mongo\Util;
 
 use Kaikeba\Mongo\Exception\MongoConnectionException;
-use Swoole\Coroutine\Client;
+use SebastianBergmann\CodeCoverage\Report\PHP;
+use Swoole\Coroutine\Socket as CoSocket;
 
 class Socket
 {
@@ -34,13 +35,7 @@ class Socket
                 ));
             }
         }
-        $sock = new Client(SWOOLE_SOCK_TCP);
-        $sock->set(array(
-            'timeout' => 0.5,
-            'connect_timeout' => $this->connectTimeout,
-            'write_timeout' => 100.0,
-            'read_timeout' => 100.0,
-        ));
+        $sock = new CoSocket(AF_INET, SOCK_STREAM, 0);
         if (!$sock->connect($ip, $this->port, $this->connectTimeout)) {
             throw new MongoConnectionException(
                 sprintf(
@@ -142,7 +137,7 @@ class Socket
 
     protected function putMessage($payload)
     {
-        $buffer = $this->sock->send($payload);
+        $buffer = $this->sock->send($payload, 100.0);
         if ($buffer === false) {
             throw new \RuntimeException('Error sending data');
         }
@@ -162,18 +157,15 @@ class Socket
         $data = $this->readFromSocket(
             $header['messageLength'] - Protocol::MSG_HEADER_SIZE
         );
-        $header = substr($data, 0, 20);
-        $vars = unpack('Vflags/V2cursorId/VstartingFrom/VnumberReturned', $header);
-
+        $tmpHeader = substr($data, 0, 20);
+        $vars = unpack('Vflags/V2cursorId/VstartingFrom/VnumberReturned', $tmpHeader);
         $documents = Bson::decode_multiple(substr($data, 20));
-        if ($documents) {
+        if (!$documents) {
             throw new \RuntimeException(sprintf(
                 'not document request/cursor mismatch: %d vs %d',
                 $requestId,
                 $header['responseTo']
             ));
-        } else {
-            $documents = [];
         }
         return [
             'result' => $documents,
@@ -193,15 +185,12 @@ class Socket
 
     public function readFromSocket($len)
     {
+        $maxRead = 65535;
+        $count = intval($len / $maxRead);
+        $surplus = $len % $maxRead;
         $buffer = '';
-        do {
-            if ($len <= strlen($buffer)) {
-                return substr($buffer, 0, $len);
-            }
-            if (!$this->sock->connected) {
-                throw new \RuntimeException('read failed');
-            }
-            $readBuffer = $this->sock->recv(100.0);
+        for($i = 0; $i < $count; $i++) {
+            $readBuffer = $this->sock->recv($maxRead, 100.0);
             if ($readBuffer === false) {
                 throw new \RuntimeException('read failed');
             }
@@ -209,7 +198,17 @@ class Socket
                 throw new \RuntimeException('read failed');
             }
             $buffer .= $readBuffer;
-        } while (true);
-        return false;
+        }
+        if ($surplus > 0) {
+            $readBuffer = $this->sock->recv($surplus, 100.0);
+            if ($readBuffer === false) {
+                throw new \RuntimeException('read failed');
+            }
+            if ($readBuffer === '') {
+                throw new \RuntimeException('read failed');
+            }
+            $buffer .= $readBuffer;
+        }
+        return $buffer;
     }
 }

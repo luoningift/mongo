@@ -67,7 +67,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
             $urlsArr[] = $tmp;
         }
         $this->config['url'] = $urlsArr;
-        $this->reconnect();
     }
 
     public function __call($name, $arguments)
@@ -80,9 +79,13 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
         return $result;
     }
 
+    public function __get($name)
+    {
+        return $this->mongoDb->selectCollection($name);
+    }
+
     public function reconnect(): bool
     {
-
         $this->close();
         if ($this->config['replica_set']) {
             $conRes = $this->connectToReplSet();
@@ -90,26 +93,38 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
         } else {
             $conRes = $this->connectToFirstAvailableHost();
         }
+        $this->lastUseTime = microtime(true);
         return $conRes;
     }
 
     public function close(): bool
     {
-        $this->sock->close();
-        $this->sock = null;
-        $this->protocol = null;
-        $this->mongoDb = null;
+        if ($this->sock) {
+            $this->sock->close();
+            $this->sock = null;
+        }
+        if ($this->protocol) {
+            $this->protocol = null;
+        }
+        if ($this->mongoDb) {
+            $this->mongoDb = null;
+        }
         return true;
     }
 
 
     private function closeReplica()
     {
-
-        $this->replicaSock->close();
-        $this->replicaSock = null;
-        $this->replicaProtocol = null;
-        $this->replicaMongoDb = null;
+        if ($this->replicaSock) {
+            $this->replicaSock->close();
+            $this->replicaSock = null;
+        }
+        if ($this->replicaProtocol) {
+            $this->replicaProtocol = null;
+        }
+        if ($this->replicaMongoDb) {
+            $this->replicaMongoDb = null;
+        }
     }
 
     public function getActiveConnection()
@@ -117,7 +132,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
         if ($this->check()) {
             return $this;
         }
-
         if (!$this->reconnect()) {
             throw new ConnectionException('Connection reconnect failed.');
         }
@@ -190,6 +204,7 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
     {
 
         $sock = new Socket($host, $port, $this->config['pool']['connect_timeout']);
+        $sock->connect();
         if (!$isReplica) {
             $this->sock = $sock;
             $this->protocol = new Protocol($sock);
@@ -221,7 +236,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
     {
         $logger = $this->container->get(StdoutLoggerInterface::class);
         $logger->warning(sprintf('mongo::__call failed, because ' . $exception->getMessage()));
-
         try {
             $this->reconnect();
             $result = $this->mongoDb->{$name}(...$arguments);
