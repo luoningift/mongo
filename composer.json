@@ -23,7 +23,7 @@
   },
    "extra": {
         "hyperf": {
-            "config": "Kaikeba\\mongo\\ConfigProvider"
+            "config": "Kaikeba\\Mongo\\ConfigProvider"
         }
     }
 }
