@@ -1,0 +1,22 @@
+{
+    "name": "kaikeba/mongo",
+    "description": "mongo hyperf client",
+    "type": "library",
+    "authors": [
+        {
+            "name": "luoning",
+            "email": "nluo@kaikeba.com"
+        }
+    ],
+    "require": {
+	"hyperf/contract": "~1.1.0",
+        "hyperf/pool": "~1.1.0",
+        "hyperf/utils": "~1.1.0",
+        "psr/container": "^1.0"
+    },
+    "autoload": {
+	"psr-4": {
+	     "Kaikeba\\": "src/"
+	}
+    }
+}
