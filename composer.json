@@ -1,22 +1,24 @@
 {
-    "name": "kaikeba/mongo",
-    "description": "mongo hyperf client",
-    "type": "library",
-    "authors": [
-        {
-            "name": "luoning",
-            "email": "nluo@kaikeba.com"
-        }
-    ],
-    "require": {
-	"hyperf/contract": "~1.1.0",
-        "hyperf/pool": "~1.1.0",
-        "hyperf/utils": "~1.1.0",
-        "psr/container": "^1.0"
-    },
-    "autoload": {
-	"psr-4": {
-	     "Kaikeba\\": "src/"
-	}
+  "name": "kaikeba/mongo",
+  "description": "mongo hyperf client",
+  "type": "library",
+  "authors": [
+    {
+      "name": "luoning",
+      "email": "nluo@kaikeba.com"
     }
+  ],
+  "require": {
+    "hyperf/di": "~1.1.0",
+    "hyperf/contract": "~1.1.0",
+    "hyperf/pool": "~1.1.0",
+    "hyperf/utils": "~1.1.0",
+    "psr/container": "^1.0",
+    "swoft/swoole-ide-helper": "^4.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Kaikeba\\Mongo\\": "src/"
+    }
+  }
 }
