@@ -20,5 +20,10 @@
     "psr-4": {
       "Kaikeba\\Mongo\\": "src/"
     }
-  }
+  },
+   "extra": {
+        "hyperf": {
+            "config": "Kaikeba\\mongo\\ConfigProvider"
+        }
+    }
 }
