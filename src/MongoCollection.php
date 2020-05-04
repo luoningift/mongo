@@ -3,6 +3,7 @@
 namespace Kaikeba\Mongo;
 
 use Kaikeba\Mongo\Types\MongoCode;
+use Kaikeba\Mongo\Types\MongoId;
 
 /**
  * Represents a MongoDB collection.

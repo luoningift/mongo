@@ -1,5 +1,7 @@
 <?php
 namespace Kaikeba\Mongo\Types;
+use Kaikeba\Mongo\Exception\MongoException;
+
 /**
  * A unique identifier created for database objects. If an object is inserted
  * into the database without an _id field, an _id field will be added to it
