@@ -1,6 +1,5 @@
 <?php
 namespace Kaikeba\Mongo\Types;
-
 use Kaikeba\Mongo\Exception\MongoException;
 
 /**

@@ -1,6 +1,8 @@
 <?php
+
 namespace Kaikeba\Mongo;
 
+use Kaikeba\Mongo\Types\MongoBinData;
 use Kaikeba\Mongo\Util\Protocol;
 
 class MongoDB
@@ -36,6 +38,8 @@ class MongoDB
      */
     private $collections = [];
 
+    private $authDbName = 'admin';
+
     /**
      * Gets a collection
      *
@@ -54,13 +58,17 @@ class MongoDB
      * @param MongoConnection $client - Database connection.
      * @param string $name - Database name.
      */
-    public function __construct(Protocol $client, $name)
+    public function __construct(Protocol $client, $name, $authDbName)
     {
         $this->name = $name;
         $this->client = $client;
+        if ($authDbName) {
+            $this->authDbName = $authDbName;
+        }
     }
 
-    public function getProtoCol() {
+    public function getProtoCol()
+    {
         return $this->client;
     }
 
@@ -94,7 +102,7 @@ class MongoDB
      *
      * @return array - Returns database response.
      */
-    public function command(array $cmd, array $options = [])
+    public function command(array $cmd, array $options = [], $isAuth = false)
     {
         $timeout = MongoCursor::$timeout;
         if (!empty($options['timeout'])) {
@@ -105,8 +113,10 @@ class MongoDB
             ? $this->client
             : $options['protocol'];
 
+        $dbname = $isAuth ? $this->authDbName : $this->name;
+
         $response = $protocol->opQuery(
-            "{$this->name}.\$cmd",
+            "{$dbname}.\$cmd",
             $cmd,
             0, -1, 0,
             $timeout
@@ -199,9 +209,9 @@ class MongoDB
      *   return    ("auth fails" could be another message, depending on
      *   database version and what when wrong).
      */
-    public function authenticate($username, $password, $options = [])
+    private function authenticateCR($username, $password, $options = [])
     {
-        $response = $this->command(['getnonce' => 1], $options);
+        $response = $this->command(['getnonce' => 1], $options, true);
         if (!isset($response['nonce'])) {
             throw new \Exception('Cannot get nonce');
         }
@@ -215,8 +225,194 @@ class MongoDB
             'authenticate' => 1,
             'user' => $username,
             'nonce' => $nonce,
-            'key' => $digest
-        ], $options);
+            'key' => $digest,
+        ], $options, true);
+    }
+
+    /**
+     * 认证服务
+     * @param $username
+     * @param $password
+     * @param array $options
+     * @return array|bool
+     * @throws \Exception
+     */
+    public function auth($username, $password, $options = []) {
+
+        $auth = $this->authenticateSHA256($username, $password, $options);
+        if (!$auth) {
+            $auth = $this->authenticateSHA1($username, $password, $options);
+        }
+        if (!$auth) {
+            $auth = $this->authenticateCR($username, $password, $options);
+        }
+        return $auth;
+    }
+
+    private function authenticateSHA256($username, $password, $options = [])
+    {
+
+        $nonce = mt_rand(0, 10000);
+        $username = str_replace('=', '=3D', $username);
+        $username = str_replace(',', '=2C', $username);
+        $payLoad = 'n,,n=' . $username . ',r=' . $nonce;
+        $response = $this->command([
+            'saslStart' => 1,
+            'mechanism' => 'SCRAM-SHA-256',
+            'payload' => new MongoBinData($payLoad, MongoBinData::GENERIC),
+            'autoAuthorize' => 1,
+        ], array_merge($options, ['skipEmptyExchange' => true]), true);
+        if (is_array($response) && isset($response['ok']) && $response['ok'] != 1) {
+            return false;
+        }
+        $dist = explode(',', $response['payload']->bin);
+        $tmpDist = [];
+        foreach ($dist as $k => $v) {
+            $tmpDist[substr($v, 0, 1)] = substr($v, 2);
+        }
+        $iterations = intval($tmpDist['i']);
+        if ($iterations < 4096) {
+            return false;
+        }
+        $salt = base64_decode($tmpDist['s']);
+        $rnonce = $tmpDist['r'];
+        if (substr($rnonce, 0, 5) == 'nonce') {
+            return false;
+        }
+        $h = function ($data) {
+            return hash('sha256', $data, true);
+        };
+        $hmac = function ($data, $key) {
+            return hash_hmac('sha256', $data, $key, true);
+        };
+        $hi = function ($password, $salt, $iterations) {
+            return hash_pbkdf2('sha256', $password, $salt, $iterations, 32, true);
+        };
+        $withoutProof = 'c=biws,r=' . $rnonce;
+        $processedPassword = $password;
+        $saltedPassword = $hi(
+            $processedPassword,
+            $salt,
+            $iterations,
+        );
+        $clientKey = $hmac('Client Key', $saltedPassword);
+        $serverKey = $hmac('Server Key', $saltedPassword);
+        $storedKey = $h($clientKey);
+        $authMessage = 'n=' . $username . ',r=' . $nonce . ',' . $response['payload']->bin . ',' . $withoutProof;
+        $clientSignature = $hmac($authMessage, $storedKey);
+        $clientProof = 'p=' . base64_encode($clientKey ^ $clientSignature);
+        $clientFinal = $withoutProof . ',' . $clientProof;
+        $serverSignature = $hmac($authMessage, $serverKey);
+        $saslContinueCmd = [
+            'saslContinue' => 1,
+            'conversationId' => $response['conversationId'],
+            'payload' => new MongoBinData($clientFinal, MongoBinData::GENERIC)
+        ];
+        $secondResponse = $this->command($saslContinueCmd, $options, true);
+        if (is_array($secondResponse) && isset($secondResponse['ok']) && $secondResponse['ok'] != 1) {
+            return false;
+        }
+        $dist = explode(',', $secondResponse['payload']->bin);
+        $tmpDist = [];
+        foreach ($dist as $k => $v) {
+            $tmpDist[substr($v, 0, 1)] = substr($v, 2);
+        }
+        if ($tmpDist['v'] !== base64_encode($serverSignature)) {
+            return false;
+        }
+        $retrySaslContinueCmd = [
+            'saslContinue' => 1,
+            'conversationId' => $secondResponse['conversationId'],
+            'payload' => ''
+        ];
+        $thirdResponse = $this->command($retrySaslContinueCmd, $options, true);
+        if (is_array($thirdResponse) && isset($thirdResponse['done']) && $thirdResponse['done'] == 1) {
+            return true;
+        }
+        return false;
+    }
+
+    private function authenticateSHA1($username, $password, $options = [])
+    {
+
+        $nonce = mt_rand(0, 10000);
+        $username = str_replace('=', '=3D', $username);
+        $username = str_replace(',', '=2C', $username);
+        $payLoad = 'n,,n=' . $username . ',r=' . $nonce;
+        $response = $this->command([
+            'saslStart' => 1,
+            'mechanism' => 'SCRAM-SHA-1',
+            'payload' => new MongoBinData($payLoad, MongoBinData::GENERIC),
+            'autoAuthorize' => 1,
+        ], array_merge($options, ['skipEmptyExchange' => true]), true);
+        if (is_array($response) && isset($response['ok']) && $response['ok'] != 1) {
+            return false;
+        }
+        $dist = explode(',', $response['payload']->bin);
+        $tmpDist = [];
+        foreach ($dist as $k => $v) {
+            $tmpDist[substr($v, 0, 1)] = substr($v, 2);
+        }
+        $iterations = intval($tmpDist['i']);
+        if ($iterations < 4096) {
+            return false;
+        }
+        $salt = base64_decode($tmpDist['s']);
+        $rnonce = $tmpDist['r'];
+        if (substr($rnonce, 0, 5) == 'nonce') {
+            return false;
+        }
+        $h = function ($data) {
+            return hash('sha1', $data, true);
+        };
+        $hmac = function ($data, $key) {
+            return hash_hmac('sha1', $data, $key, true);
+        };
+        $hi = function ($password, $salt, $iterations) {
+            return hash_pbkdf2('sha1', $password, $salt, $iterations, 20, true);
+        };
+        $withoutProof = 'c=biws,r=' . $rnonce;
+        $processedPassword = md5($username . ':mongo:' . $password);
+        $saltedPassword = $hi(
+            $processedPassword,
+            $salt,
+            $iterations,
+        );
+        $clientKey = $hmac('Client Key', $saltedPassword);
+        $serverKey = $hmac('Server Key', $saltedPassword);
+        $storedKey = $h($clientKey);
+        $authMessage = 'n=' . $username . ',r=' . $nonce . ',' . $response['payload']->bin . ',' . $withoutProof;
+        $clientSignature = $hmac($authMessage, $storedKey);
+        $clientProof = 'p=' . base64_encode($clientKey ^ $clientSignature);
+        $clientFinal = $withoutProof . ',' . $clientProof;
+        $serverSignature = $hmac($authMessage, $serverKey);
+        $saslContinueCmd = [
+            'saslContinue' => 1,
+            'conversationId' => $response['conversationId'],
+            'payload' => new MongoBinData($clientFinal, MongoBinData::GENERIC)
+        ];
+        $secondResponse = $this->command($saslContinueCmd, $options, true);
+        if (is_array($secondResponse) && isset($secondResponse['ok']) && $secondResponse['ok'] != 1) {
+            return false;
+        }
+        $dist = explode(',', $secondResponse['payload']->bin);
+        $tmpDist = [];
+        foreach ($dist as $k => $v) {
+            $tmpDist[substr($v, 0, 1)] = substr($v, 2);
+        }
+        if ($tmpDist['v'] !== base64_encode($serverSignature)) {
+            return false;
+        }
+        $retrySaslContinueCmd = [
+            'saslContinue' => 1,
+            'conversationId' => $secondResponse['conversationId'],
+            'payload' => ''
+        ];
+        $thirdResponse = $this->command($retrySaslContinueCmd, $options, true);
+        if (is_array($thirdResponse) && isset($thirdResponse['done']) && $thirdResponse['done'] == 1) {
+            return true;
+        }
+        return false;
     }
 
     /**

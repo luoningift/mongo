@@ -34,8 +34,8 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
     protected $config = [
         'url' => '127.0.0.1:27017,mongo.com:27017',
         'db' => 'admin',
-        'username' => '',
-        'password' => '',
+        'auth_user' => '',
+        'auth_pass' => '',
         'replica_set' => '',
         'auth_source' => 'admin',
         'pool' => [
@@ -77,11 +77,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
             $result = $this->retry($name, $arguments, $exception);
         }
         return $result;
-    }
-
-    public function __get($name)
-    {
-        return $this->mongoDb->selectCollection($name);
     }
 
     public function reconnect(): bool
@@ -192,7 +187,9 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
         shuffle($this->config['url']);
         foreach ($this->config['url'] as $host) {
             try {
-                return $this->connectToHost($host[0], $host[1], $isReplica);
+                if ($this->connectToHost($host[0], $host[1], $isReplica)) {
+                    return true;
+                }
             } catch (\Exception $e) {
                 continue;
             }
@@ -207,21 +204,29 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
         $sock->connect();
         if (!$isReplica) {
             $this->sock = $sock;
-            $this->protocol = new Protocol($sock);
-            $this->mongoDb = new MongoDB($this->protocol, $this->config['db']);
-            if ($this->config['username'] != '') {
-                $this->mongoDb->authenticate($this->config['username'], $this->config['password'], [
-                    'protocol' => $this->protocol,
-                ]);
+            $this->protocol = new Protocol($this->sock);
+            $this->mongoDb = new MongoDB($this->protocol, $this->config['db'], $this->config['auth_source']);
+            if ($this->config['auth_user'] != '') {
+                if (!$this->mongoDb->auth($this->config['auth_user'], $this->config['auth_pass'])) {
+                    $this->sock->close();
+                    $this->sock = null;
+                    $this->protocol = null;
+                    $this->mongoDb = null;
+                    return false;
+                }
             }
         } else {
             $this->replicaSock = $sock;
-            $this->replicaProtocol = new Protocol($sock);
-            $this->replicaMongoDb = new MongoDB($this->replicaProtocol, $this->config['auth_source']);
-            if ($this->config['username'] != '') {
-                $this->replicaMongoDb->authenticate($this->config['username'], $this->config['password'], [
-                    'protocol' => $this->protocol,
-                ]);
+            $this->replicaProtocol = new Protocol($this->replicaSock);
+            $this->replicaMongoDb = new MongoDB($this->replicaProtocol, $this->config['db'], $this->config['auth_source']);
+            if ($this->config['auth_user'] != '') {
+                if (!$this->replicaMongoDb->auth($this->config['auth_user'], $this->config['auth_pass'])) {
+                    $this->replicaSock->close();
+                    $this->replicaSock = null;
+                    $this->protocol = null;
+                    $this->mongoDb = null;
+                    return false;
+                }
             }
         }
         return true;
