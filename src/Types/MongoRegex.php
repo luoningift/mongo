@@ -1,5 +1,7 @@
 <?php
 namespace Kaikeba\Mongo\Types;
+use Kaikeba\Mongo\Exception\MongoException;
+
 /**
  * This class can be used to create regular expressions. Typically, these
  * expressions will be used to query the database and find matching strings.
