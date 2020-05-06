@@ -141,7 +141,6 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
     {
 
         if (!$this->connectToFirstAvailableHost(true)) {
-            echo '1111' . PHP_EOL;
             return false;
         }
         try {
