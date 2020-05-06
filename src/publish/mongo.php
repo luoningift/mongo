@@ -11,12 +11,15 @@ declare(strict_types=1);
  */
 return [
     'default' => [
-        'url' => '127.0.0.1:27017,mongo.com:27017',
+        'url' => '127.0.0.1:27017',
         'db' => 'admin',
-        'auth_user' => '',
-        'auth_pass' => '',
-        'replica_set' => false,
-        'auth_source' => 'admin',
+        'username' => '',
+        'password' => '',
+        'auth_source' => '',
+        'replica_set' => '',
+        'replica_username' => '',
+        'replica_password' => '',
+        'replica_auth_source' => '',
         'pool' => [
             'min_connections' => 1,
             'max_connections' => 20,

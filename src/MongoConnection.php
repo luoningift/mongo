@@ -34,10 +34,13 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
     protected $config = [
         'url' => '127.0.0.1:27017,mongo.com:27017',
         'db' => 'admin',
-        'auth_user' => '',
-        'auth_pass' => '',
+        'username' => '',
+        'password' => '',
+        'auth_source' => '',
         'replica_set' => '',
-        'auth_source' => 'admin',
+        'replica_username' => '',
+        'replica_password' => '',
+        'replica_auth_source' => '',
         'pool' => [
             'min_connections' => 1,
             'max_connections' => 20,
@@ -138,6 +141,7 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
     {
 
         if (!$this->connectToFirstAvailableHost(true)) {
+            echo '1111' . PHP_EOL;
             return false;
         }
         try {
@@ -206,8 +210,8 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
             $this->sock = $sock;
             $this->protocol = new Protocol($this->sock);
             $this->mongoDb = new MongoDB($this->protocol, $this->config['db'], $this->config['auth_source']);
-            if ($this->config['auth_user'] != '') {
-                if (!$this->mongoDb->auth($this->config['auth_user'], $this->config['auth_pass'])) {
+            if ($this->config['username'] != '') {
+                if (!$this->mongoDb->auth($this->config['username'], $this->config['password'])) {
                     $this->sock->close();
                     $this->sock = null;
                     $this->protocol = null;
@@ -218,9 +222,9 @@ class MongoConnection extends BaseConnection implements ConnectionInterface
         } else {
             $this->replicaSock = $sock;
             $this->replicaProtocol = new Protocol($this->replicaSock);
-            $this->replicaMongoDb = new MongoDB($this->replicaProtocol, $this->config['db'], $this->config['auth_source']);
-            if ($this->config['auth_user'] != '') {
-                if (!$this->replicaMongoDb->auth($this->config['auth_user'], $this->config['auth_pass'])) {
+            $this->replicaMongoDb = new MongoDB($this->replicaProtocol, $this->config['replica_auth_source'] ? $this->config['replica_auth_source'] : 'admin', $this->config['replica_auth_source']);
+            if ($this->config['replica_username'] != '') {
+                if (!$this->replicaMongoDb->auth($this->config['replica_username'], $this->config['replica_password'])) {
                     $this->replicaSock->close();
                     $this->replicaSock = null;
                     $this->protocol = null;
