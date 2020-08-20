@@ -1,12 +1,11 @@
 <?php
 
-namespace Kaikeba\Mongo\Util;
+namespace HkY\;
 
-use Kaikeba\Mongo\Exception\MongoConnectionException;
-use SebastianBergmann\CodeCoverage\Report\PHP;
-use Swoole\Coroutine\Socket as CoSocket;
+use Swoole;
+use MongoDB;
 
-class Socket
+class socket
 {
     private $sock;
     private $host;
@@ -27,31 +26,21 @@ class Socket
         if (filter_var($this->host, FILTER_VALIDATE_IP)) {
             $ip = $this->host;
         } else {
-            $ip = gethostbyname($this->host);
+            $ip = Swoole\Coroutine\System::gethostbyname($this->host);
             if ($ip == $this->host) {
-                throw new MongoConnectionException(sprintf(
-                    'couldn\'t get host info for %s',
-                    $this->host
-                ));
+                throw new MongoDB\Driver\Exception\ConnectionException(sprintf('couldn\'t get host info for %s', $this->host));
             }
         }
-        $sock = new CoSocket(AF_INET, SOCK_STREAM, 0);
+        $sock = new Swoole\Coroutine\Socket(AF_INET, SOCK_STREAM, 0);
         if (!$sock->connect($ip, $this->port, $this->connectTimeout)) {
-            throw new MongoConnectionException(
-                sprintf(
-                    'Error Connecting to server(%s): %s ',
-                    $sock->errCode,
-                    swoole_strerror($sock->errCode)
-                ),
-                $sock->errCode
-            );
+            throw new MongoDB\Driver\Exception\ConnectionException (sprintf('Error Connecting to server(%s): %s ', $sock->errCode, swoole_strerror($sock->errCode)), $sock->errCode);
         }
         $this->sock = $sock;
     }
 
     public function close()
     {
-        if (isset($this->sock) && $this->sock instanceof Client) {
+        if ($this->sock && $this->sock instanceof Swoole\Coroutine\Socket) {
             $this->sock->close();
         }
         $this->sock = null;
@@ -146,7 +135,7 @@ class Socket
     protected function getMessage($requestId, $timeout)
     {
 
-        $header = $this->readHeaderFromSocket();
+        $header = $this->header();
         if ($requestId != $header['responseTo']) {
             throw new \RuntimeException(sprintf(
                 'request/cursor mismatch: %d vs %d',
@@ -154,12 +143,10 @@ class Socket
                 $header['responseTo']
             ));
         }
-        $data = $this->readFromSocket(
-            $header['messageLength'] - Protocol::MSG_HEADER_SIZE
-        );
+        $data = $this->receive($header['messageLength'] - Protocol::MSG_HEADER_SIZE);
         $tmpHeader = substr($data, 0, 20);
         $vars = unpack('Vflags/V2cursorId/VstartingFrom/VnumberReturned', $tmpHeader);
-        $documents = Bson::decode_multiple(substr($data, 20));
+        $documents = \MongoDB\BSON\toPHP(substr($data, 20), []);
         if (!$documents) {
             throw new \RuntimeException(sprintf(
                 'not document request/cursor mismatch: %d vs %d',
@@ -175,37 +162,40 @@ class Socket
         ];
     }
 
-    protected function readHeaderFromSocket()
+    protected function header()
     {
-        $data = $this->readFromSocket(Protocol::MSG_HEADER_SIZE);
-        $header = unpack('VmessageLength/VrequestId/VresponseTo/Vopcode', $data);
-
-        return $header;
+        $data = $this->receive(Protocol::MSG_HEADER_SIZE);
+        return unpack('VmessageLength/VrequestId/VresponseTo/Vopcode', $data);
     }
 
-    public function readFromSocket($len)
+    /**
+     * socket获取数据
+     * @param $len
+     * @return string
+     */
+    private function receive($len)
     {
         $maxRead = 65535;
         $count = intval($len / $maxRead);
         $surplus = $len % $maxRead;
         $buffer = '';
-        for($i = 0; $i < $count; $i++) {
+        for ($i = 0; $i < $count; $i++) {
             $readBuffer = $this->sock->recv($maxRead, 100.0);
             if ($readBuffer === false) {
-                throw new \RuntimeException('read failed');
+                throw new MongoDB\Driver\Exception\RuntimeException("mongo read data failed");
             }
             if ($readBuffer === '') {
-                throw new \RuntimeException('read failed');
+                throw new MongoDB\Driver\Exception\RuntimeException("mongo read data failed");
             }
             $buffer .= $readBuffer;
         }
         if ($surplus > 0) {
             $readBuffer = $this->sock->recv($surplus, 100.0);
             if ($readBuffer === false) {
-                throw new \RuntimeException('read failed');
+                throw new MongoDB\Driver\Exception\RuntimeException("mongo read data failed");
             }
             if ($readBuffer === '') {
-                throw new \RuntimeException('read failed');
+                throw new MongoDB\Driver\Exception\RuntimeException("mongo read data failed");
             }
             $buffer .= $readBuffer;
         }

@@ -1,5 +1,7 @@
 <?php
-namespace Kaikeba\Mongo\Util;
+namespace HKY\HyperfMongo\Client;
+
+use MongoDB;
 
 class Util
 {
@@ -16,11 +18,10 @@ class Util
     {
         $nulPos = strpos($data, "\0", $offset);
         if (false === $nulPos) {
-            throw new \RuntimeException("Can't parse cstring, no nul-character found.");
+            throw new MongoDB\Driver\Exception\RuntimeException("Can't parse cstring, no nul-character found.");
         }
         $str = substr($data, $offset, $nulPos - $offset);
         $offset = $nulPos + 1;
-
         return $str;
     }
 

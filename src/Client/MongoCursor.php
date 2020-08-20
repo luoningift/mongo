@@ -373,14 +373,6 @@ class MongoCursor implements \Iterator
         } else {
             return $this->queryLimit;
         }
-
-        if ($this->batchSize && (!$limitAt || $this->batchSize <= $limitAt)) {
-            return $this->batchSize;
-        } elseif ($limitAt && (!$limitAt || $this->batchSize > $limitAt)) {
-            return $limitAt;
-        }
-
-        return 0;
     }
 
     private function fetchMoreDocumentsIfNeeded()
